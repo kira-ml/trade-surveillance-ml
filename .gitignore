@@ -1,0 +1,61 @@
+# ─────────────────────────────────────────────
+# Trade Surveillance ML — .gitignore
+# ─────────────────────────────────────────────
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.egg
+*.egg-info/
+dist/
+build/
+*.so
+
+# Virtual environments
+venv/
+.venv/
+env/
+.env/
+
+# Jupyter Notebooks
+.ipynb_checkpoints/
+notebooks/.ipynb_checkpoints/
+
+# Data — raw and processed (never commit data)
+data/raw/
+data/processed/
+
+# Models — versioned runs (too large for git)
+models/run_*/
+models/model_registry.json
+
+# Logs
+logs/
+*.log
+
+# Experiments
+experiments/experiment_log.csv
+
+# Config overrides (keep only the base config.yaml)
+configs/config.local.yaml
+configs/config.override.yaml
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Pytest / coverage
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Mypy
+.mypy_cache/

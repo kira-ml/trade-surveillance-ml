@@ -1,0 +1,19 @@
+# Core data handling
+pandas==2.2.2
+numpy==1.26.4
+
+# Machine learning
+scikit-learn==1.5.0
+imbalanced-learn==0.12.3
+
+# Model persistence
+joblib==1.4.2
+
+# Configuration
+pyyaml==6.0.1
+
+# Visualization
+matplotlib==3.9.0
+
+# Reproducibility utility
+python-dateutil==2.9.0

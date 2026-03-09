@@ -1,0 +1,82 @@
+# ─────────────────────────────────────────────
+# Trade Surveillance ML System — Configuration
+# ─────────────────────────────────────────────
+
+project:
+  name: trade_surveillance
+  version: "1.0"
+  random_seed: 42
+
+# ── Data Simulation ──────────────────────────
+data:
+  simulation:
+    num_traders: 500
+    num_events_per_trader: 200
+    manipulation_fraction: 0.10        # 10% of traders are manipulators
+    poisson_lambda: 5.0                # average orders per time unit
+    price_mean: 100.0
+    price_std: 2.0
+    cancellation_rate_normal: 0.25
+    cancellation_rate_manipulator: 0.80
+    seed: 42
+
+  paths:
+    raw: data/raw/lob_events.csv
+    processed_dir: data/processed/
+    scaler_params: data/processed/scaler_params.json
+    inference_input: data/raw/new_lob_events.csv
+    inference_output: data/processed/inference_predictions.csv
+
+# ── Preprocessing ────────────────────────────
+preprocessing:
+  train_ratio: 0.70
+  validation_ratio: 0.15
+  test_ratio: 0.15
+  drop_duplicates: true
+  normalize_columns:
+    - order_size
+    - price
+
+# ── Feature Engineering ──────────────────────
+features:
+  burstiness_min_events: 5            # minimum events to compute burstiness
+  volume_imbalance_default: 0.0       # fallback if no buy/sell info available
+
+# ── Model Configuration ──────────────────────
+model:
+  logistic_regression:
+    max_iter: 1000
+    solver: lbfgs
+    class_weight: balanced
+
+  random_forest:
+    n_estimators: 100
+    max_depth: 10
+    min_samples_leaf: 5
+    class_weight: balanced
+
+  isolation_forest:
+    n_estimators: 100
+    contamination: 0.10               # matches manipulation_fraction
+    max_samples: auto
+
+# ── Evaluation ───────────────────────────────
+evaluation:
+  top_k: 20                           # Precision@Top-K flagged traders
+  threshold_isolation_forest: -0.1    # anomaly score threshold
+  save_roc_curve: true
+  save_feature_importance: true
+
+# ── Paths ────────────────────────────────────
+paths:
+  models_dir: models/
+  logs_dir: logs/
+  experiments_dir: experiments/
+  experiment_log: experiments/experiment_log.csv
+  model_registry: models/model_registry.json
+
+# ── Logging ──────────────────────────────────
+logging:
+  level: INFO                         # DEBUG | INFO | WARNING
+  log_file: logs/pipeline.log
+  format: "[%(asctime)s] [%(levelname)s] [%(name)s] %(message)s"
