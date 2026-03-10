@@ -191,3 +191,136 @@ class TestInputValidation:
     def test_negative_mid_price_raises(self, base_cfg, tmp_path):
         with pytest.raises(ValueError, match="price_mean"):
             simulate(self._cfg_with(base_cfg, tmp_path, price_mean=-1.0))
+
+
+class TestDistributions:
+    """Statistical checks: class-conditional parameters must produce distinct ML signal."""
+
+    @pytest.fixture()
+    def large_cfg(self, tmp_path):
+        """Larger dataset for statistically stable assertions."""
+        return {
+            "data": {
+                "simulation": {
+                    "num_traders": 200,
+                    "num_events_per_trader": 200,
+                    "manipulation_fraction": 0.30,
+                    "poisson_lambda": 5.0,
+                    "price_mean": 100.0,
+                    "price_std": 2.0,
+                    "cancellation_rate_normal": 0.25,
+                    "cancellation_rate_manipulator": 0.80,
+                    "seed": 0,
+                },
+                "paths": {
+                    "raw": str(tmp_path / "dist_test" / "lob_events.csv"),
+                    "processed_dir": str(tmp_path / "processed/"),
+                    "scaler_params": str(tmp_path / "processed" / "scaler_params.json"),
+                    "inference_input": str(tmp_path / "raw" / "new_lob_events.csv"),
+                    "inference_output": str(tmp_path / "processed" / "inference_predictions.csv"),
+                },
+            }
+        }
+
+    def _load(self, cfg) -> pd.DataFrame:
+        simulate(cfg)
+        return pd.read_csv(cfg["data"]["paths"]["raw"])
+
+    def test_manipulator_higher_cancellation_rate(self, large_cfg):
+        """_EVENT_PROBS_MANIP cancellation = 0.50 vs _EVENT_PROBS_NORMAL = 0.25."""
+        df = self._load(large_cfg)
+        cancel_rate = df.groupby("label")["event_type"].apply(
+            lambda s: (s == "cancellation").mean()
+        )
+        assert cancel_rate[1] > cancel_rate[0], (
+            "Manipulators should have a higher cancellation rate than normals"
+        )
+
+    def test_manipulator_price_tighter_around_mid(self, large_cfg):
+        """_PRICE_STD_MANIP = 0.5 vs _PRICE_STD_NORMAL = 2.0."""
+        df = self._load(large_cfg)
+        price_std = df.groupby("label")["price"].std()
+        assert price_std[1] < price_std[0], (
+            "Manipulator prices should cluster tighter around mid_price"
+        )
+
+    def test_manipulator_shorter_time_to_cancel(self, large_cfg):
+        """_CANCEL_MEAN_MANIP = 2.0 vs _CANCEL_MEAN_NORMAL = 30.0."""
+        df = self._load(large_cfg)
+        cancels = df[df["event_type"] == "cancellation"]
+        mean_ttc = cancels.groupby("label")["time_to_cancel"].mean()
+        assert mean_ttc[1] < mean_ttc[0], (
+            "Manipulator time_to_cancel should be shorter than normals"
+        )
+
+    def test_manipulator_denser_order_arrivals(self, large_cfg):
+        """_LAMBDA_MANIP = 15.0 (3× normal) → smaller mean inter-arrival gap."""
+        df = self._load(large_cfg)
+
+        per_trader = (
+            df.groupby(["trader_id", "label"])["timestamp"]
+            .apply(lambda ts: ts.sort_values().diff().dropna().mean())
+            .reset_index(name="mean_gap")
+        )
+        avg_gap = per_trader.groupby("label")["mean_gap"].mean()
+        assert avg_gap[1] < avg_gap[0], (
+            "Manipulators should have shorter mean inter-arrival times (denser activity)"
+        )
+
+
+class TestEdgeCases:
+    """Edge-case inputs that are valid but sit at boundary conditions."""
+
+    def _make_cfg(self, tmp_path, tag="edge", **overrides):
+        sim = {
+            "num_traders": 10,
+            "num_events_per_trader": 5,
+            "manipulation_fraction": 0.10,
+            "poisson_lambda": 5.0,
+            "price_mean": 100.0,
+            "price_std": 2.0,
+            "cancellation_rate_normal": 0.25,
+            "cancellation_rate_manipulator": 0.80,
+            "seed": 1,
+        }
+        sim.update(overrides)
+        return {
+            "data": {
+                "simulation": sim,
+                "paths": {
+                    "raw": str(tmp_path / tag / "lob_events.csv"),
+                    "processed_dir": str(tmp_path / "processed/"),
+                    "scaler_params": str(tmp_path / "processed" / "scaler_params.json"),
+                    "inference_input": str(tmp_path / "raw" / "new_lob_events.csv"),
+                    "inference_output": str(tmp_path / "processed" / "inference_predictions.csv"),
+                },
+            }
+        }
+
+    def test_zero_manipulators_from_rounding_no_crash(self, tmp_path):
+        """floor(3 × 0.10) == 0: should not crash; all labels must be 0."""
+        cfg = self._make_cfg(
+            tmp_path, tag="zero_manip", num_traders=3, manipulation_fraction=0.10
+        )
+        simulate(cfg)
+        df = pd.read_csv(cfg["data"]["paths"]["raw"])
+        assert (df["label"] == 0).all(), "Expected all-normal dataset when floor rounds to 0"
+
+    def test_high_manipulation_fraction(self, tmp_path):
+        """floor(10 × 0.99) == 9 manipulators out of 10 traders."""
+        cfg = self._make_cfg(
+            tmp_path, tag="high_manip", num_traders=10, manipulation_fraction=0.99
+        )
+        simulate(cfg)
+        df = pd.read_csv(cfg["data"]["paths"]["raw"])
+        expected_manip = math.floor(10 * 0.99)
+        actual_manip = df[df["label"] == 1]["trader_id"].nunique()
+        assert actual_manip == expected_manip
+
+    def test_deeply_nested_output_path_created(self, tmp_path):
+        """mkdir(parents=True) must create all intermediate directories."""
+        deep_path = tmp_path / "a" / "b" / "c" / "d" / "lob_events.csv"
+        cfg = self._make_cfg(tmp_path, tag="deep")
+        cfg["data"]["paths"]["raw"] = str(deep_path)
+        simulate(cfg)
+        assert deep_path.exists(), "Deeply nested output path should be created automatically"
