@@ -1,0 +1,87 @@
+# ── Reproducibility ────────────────────────────────────────────────
+random_seed: 42
+
+# ── Data Simulation ────────────────────────────────────────────────
+simulation:
+  n_traders: 500
+  n_time_windows: 100
+  suspicious_fraction: 0.10        # 10% of traders are manipulators
+  poisson_lambda_normal: 5.0       # avg orders/sec for normal traders
+  poisson_lambda_suspicious: 15.0  # burst rate for manipulators
+  cancellation_rate_normal: 0.20
+  cancellation_rate_suspicious: 0.85
+
+# ── Data Paths ─────────────────────────────────────────────────────
+paths:
+  raw_data:        data/raw/lob_events.csv
+  processed_data:  data/processed/events_clean.csv
+  feature_matrix:  data/features/feature_matrix.csv
+  train_split:     data/splits/train.csv
+  val_split:       data/splits/val.csv
+  test_split:      data/splits/test.csv
+  models_dir:      models/
+  outputs_dir:     outputs/
+  logs_dir:        logs/
+
+# ── Preprocessing ──────────────────────────────────────────────────
+preprocessing:
+  time_window_seconds: 60
+  drop_null_rows: true
+  scaler: standard                 # options: standard, minmax, none
+
+# ── Feature Engineering ────────────────────────────────────────────
+features:
+  use_cancellation_rate: true
+  use_order_to_trade_ratio: true
+  use_placement_cancel_latency: true
+  use_mid_price_distance: true
+  use_volume_imbalance: true
+  use_burstiness: true
+
+# ── Dataset Split ──────────────────────────────────────────────────
+splitting:
+  train_ratio: 0.70
+  val_ratio:   0.15
+  test_ratio:  0.15
+  stratify:    true
+
+# ── Model Training ─────────────────────────────────────────────────
+training:
+  models:
+    - logistic_regression
+    - random_forest
+    - isolation_forest
+
+  logistic_regression:
+    C: 1.0
+    max_iter: 1000
+    class_weight: balanced
+    solver: lbfgs
+
+  random_forest:
+    n_estimators: 200
+    max_depth: 10
+    min_samples_leaf: 5
+    class_weight: balanced
+    n_jobs: -1
+
+  isolation_forest:
+    n_estimators: 100
+    contamination: 0.10            # matches suspicious_fraction
+    random_state: 42
+
+# ── Evaluation ─────────────────────────────────────────────────────
+evaluation:
+  threshold: 0.5                   # overridden by val-tuned threshold
+  top_k: 20                        # for Precision@Top-K
+  metrics:
+    - precision
+    - recall
+    - f1
+    - roc_auc
+    - confusion_matrix
+
+# ── Logging ────────────────────────────────────────────────────────
+logging:
+  level: INFO
+  log_to_file: true

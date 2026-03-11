@@ -1,297 +1,257 @@
-# trade-surveillance-ml
+﻿# Trade Surveillance — Market Manipulation Detection
 
-A local, end-to-end machine learning system for detecting market manipulation in synthetic limit-order-book data. This project covers the core ML engineering lifecycle — from data simulation and feature engineering to model training, evaluation, and inference — designed to run on a standard laptop without any distributed infrastructure.
-
-> Built as a portfolio project to explore applied ML engineering in a financial surveillance context.
+A machine learning system for detecting suspicious trading behavior (spoofing, layering) using synthetic limit-order-book event data. Built to run locally on a standard laptop, CPU-only.
 
 ---
 
-## Table of Contents
+## Overview
 
-- [Project Overview](#project-overview)
-- [System Architecture](#system-architecture)
-- [Project Structure](#project-structure)
-- [ML Pipeline Stages](#ml-pipeline-stages)
-- [Features Engineered](#features-engineered)
-- [Models Used](#models-used)
-- [Evaluation Metrics](#evaluation-metrics)
-- [Getting Started](#getting-started)
-- [Configuration](#configuration)
-- [Experiment Tracking](#experiment-tracking)
-- [Reproducibility](#reproducibility)
-- [Limitations](#limitations)
-- [Skills Demonstrated](#skills-demonstrated)
+Financial markets generate millions of order events daily. Manual surveillance is not feasible at that scale. This project simulates realistic trading activity, engineers behavioral features per trader, and trains classifiers to flag suspicious patterns.
 
----
+This is not a stock price predictor. The focus is on **order behavior analysis** — which is closer to what compliance teams and exchanges actually work on.
 
-## Project Overview
-
-Financial markets generate millions of order events daily. Detecting manipulation patterns such as **spoofing** and **layering** — where traders place and cancel orders rapidly to move prices artificially — is a core challenge for exchanges, regulators, and compliance teams.
-
-This project builds a trade surveillance pipeline that:
-
-- Simulates realistic limit-order-book (LOB) events using a Poisson arrival process
-- Injects synthetic manipulation patterns into a configurable fraction of traders
-- Engineers behavioral features per trader from raw event data
-- Trains and compares classification and anomaly detection models
-- Evaluates performance with metrics appropriate for rare-event detection
-
-The system is intentionally kept minimal and local — the focus is on **understanding the ML workflow**, not building production infrastructure.
-
----
-
-## System Architecture
-
-```
-[Data Simulation] → [Validation] → [Preprocessing] → [Feature Engineering]
-        → [Model Training] → [Evaluation] → [Model Persistence] → [Inference]
-                     ↑                            ↑
-              [Config Manager]         [Logger + Experiment Tracker]
-```
-
-- All stages are driven by a single `config.yaml`
-- Each stage is an independent Python module with clearly scoped responsibilities
-- Models are versioned locally using timestamped run directories
-- A local `experiment_log.csv` tracks metrics across runs
+**ML Task:** Binary classification (normal vs. suspicious trader-window)  
+**Unit of prediction:** One trader across one time window (e.g., 60 seconds)  
+**Models used:** Logistic Regression, Random Forest, Isolation Forest
 
 ---
 
 ## Project Structure
 
 ```
-trade-surveillance-ml/
+trade-surveillance/
 │
 ├── data/
-│   ├── raw/
-│   │   └── lob_events.csv
-│   └── processed/
-│       ├── train.csv
-│       ├── validation.csv
-│       ├── test.csv
-│       └── scaler_params.json
+│   ├── raw/                  # Simulated raw LOB events
+│   ├── processed/            # Cleaned event data
+│   ├── features/             # Engineered feature matrix
+│   └── splits/               # Train / val / test splits
 │
-├── models/
-│   ├── run_YYYYMMDD_HHMMSS/
-│   │   ├── random_forest.joblib
-│   │   ├── logistic_regression.joblib
-│   │   └── isolation_forest.joblib
-│   └── model_registry.json
+├── models/                   # Saved model artifacts + scaler
 │
-├── experiments/
-│   └── experiment_log.csv
+├── outputs/
+│   ├── metrics/              # JSON metrics per run
+│   ├── plots/                # ROC curves, confusion matrices
+│   ├── predictions/          # Inference output CSVs
+│   └── experiments/          # Experiment log + config snapshots
 │
-├── logs/
-│   ├── pipeline.log
-│   ├── roc_curve_random_forest.png
-│   ├── roc_curve_logistic_regression.png
-│   └── feature_importance.png
-│
-├── configs/
-│   └── config.yaml
+├── logs/                     # Per-run log files
 │
 ├── src/
-│   ├── data/
-│   │   ├── simulate.py
-│   │   ├── validate.py
-│   │   └── preprocess.py
-│   │
-│   ├── features/
-│   │   └── engineer.py
-│   │
-│   ├── models/
-│   │   ├── train.py
-│   │   ├── evaluate.py
-│   │   └── persist.py
-│   │
-│   ├── pipeline/
-│   │   └── inference.py
-│   │
+│   ├── simulate_data.py
+│   ├── validate_data.py
+│   ├── preprocess.py
+│   ├── feature_engineering.py
+│   ├── dataset_splitter.py
+│   ├── train.py
+│   ├── evaluate.py
+│   ├── inference.py
+│   ├── experiment_tracker.py
 │   └── utils/
-│       ├── config.py
-│       ├── logger.py
-│       └── experiment_tracker.py
+│       ├── config_loader.py
+│       └── logger.py
 │
 ├── notebooks/
-│   └── eda.ipynb
+│   └── exploration.ipynb     # EDA only, not part of the pipeline
 │
-├── main.py
+├── tests/
+│   ├── test_simulate_data.py
+│   ├── test_feature_engineering.py
+│   └── test_preprocess.py
+│
+├── config.yaml
 ├── requirements.txt
-├── README.md
-└── .gitignore
+├── run_training.py           # Entry point: full training pipeline
+├── run_inference.py          # Entry point: inference pipeline
+└── README.md
 ```
 
 ---
 
-## ML Pipeline Stages
+## Setup
 
-| Stage | Module | Description |
-|---|---|---|
-| Data Simulation | `simulate.py` | Generates synthetic LOB events with injected manipulation patterns |
-| Data Validation | `validate.py` | Checks schema, nulls, value ranges before preprocessing |
-| Preprocessing | `preprocess.py` | Cleans, normalizes, and splits data into train/val/test |
-| Feature Engineering | `engineer.py` | Aggregates event-level data into trader-level behavioral features |
-| Model Training | `train.py` | Trains Logistic Regression, Random Forest, Isolation Forest |
-| Evaluation | `evaluate.py` | Computes metrics, ROC curves, feature importance |
-| Model Persistence | `persist.py` | Saves models with local versioning via timestamped directories |
-| Inference | `inference.py` | Loads persisted model and scores new trader activity |
-| Experiment Tracking | `experiment_tracker.py` | Appends run metadata and metrics to local CSV log |
+**Requirements:** Python 3.10+, CPU-only, no GPU needed.
+
+```bash
+git clone https://github.com/your-username/trade-surveillance.git
+cd trade-surveillance
+
+python -m venv venv
+source venv/bin/activate        # Windows: venv\Scripts\activate
+
+pip install -r requirements.txt
+```
+
+---
+
+## Quickstart
+
+**Run the full training pipeline:**
+
+```bash
+python run_training.py
+```
+
+This will:
+1. Simulate synthetic LOB event data
+2. Validate and clean the data
+3. Engineer behavioral features per trader-window
+4. Split into train / val / test sets
+5. Train Logistic Regression, Random Forest, and Isolation Forest
+6. Evaluate on the test set and save metrics + plots
+7. Log the experiment to `outputs/experiments/experiment_log.csv`
+
+**Run inference on new data:**
+
+```bash
+python run_inference.py --input data/raw/new_events.csv
+```
+
+Output saved to `outputs/predictions/predictions.csv`.
 
 ---
 
 ## Features Engineered
 
-All features are computed per trader from raw event-level data:
+Each feature is computed per trader per time window:
 
 | Feature | Description |
 |---|---|
-| `cancellation_rate` | Ratio of cancellations to total orders placed |
-| `order_to_trade_ratio` | Total orders placed divided by executed trades |
-| `avg_time_to_cancel` | Mean time (seconds) between order placement and cancellation |
-| `avg_distance_from_mid` | Mean absolute difference between order price and mid-price |
-| `volume_imbalance` | (buy_volume − sell_volume) / (buy_volume + sell_volume) |
-| `burstiness` | Coefficient of variation of inter-arrival times per trader |
+| `cancellation_rate` | Fraction of placed orders that were cancelled |
+| `order_to_trade_ratio` | Orders placed per actual trade executed |
+| `placement_cancel_latency` | Mean time (ms) between order placement and cancellation |
+| `mid_price_distance` | Mean distance of orders from current mid-price |
+| `volume_imbalance` | Imbalance between buy-side and sell-side order volume |
+| `burstiness` | Coefficient of variation of inter-arrival times |
+
+Spoofing typically shows up as high cancellation rates, low latency between place/cancel, and orders clustered near the best bid/ask.
 
 ---
 
-## Models Used
+## Models
 
-| Model | Type | Imbalance Handling |
+| Model | Type | Notes |
 |---|---|---|
-| Logistic Regression | Supervised Classification | `class_weight=balanced` |
-| Random Forest | Supervised Classification | `class_weight=balanced` |
-| Isolation Forest | Unsupervised Anomaly Detection | `contamination` parameter |
+| Logistic Regression | Supervised | Baseline, interpretable coefficients |
+| Random Forest | Supervised | Better on nonlinear patterns, feature importance available |
+| Isolation Forest | Unsupervised | Anomaly detection, useful when labels are uncertain |
+
+Class imbalance is handled via `class_weight='balanced'` for supervised models. Classification threshold is tuned on the validation set to optimize F1.
 
 ---
 
 ## Evaluation Metrics
 
-Given that manipulating traders represent a small fraction (~10%) of all traders, standard accuracy is not a suitable metric. The following are used:
+Given the rare-event nature of manipulation detection, accuracy alone is not meaningful.
 
-- **Precision / Recall** — primary metrics for rare-event detection
-- **ROC-AUC** — overall discriminative ability
-- **Confusion Matrix** — breakdown of TP, FP, FN, TN
-- **Precision@Top-K** — precision among the top-K highest suspicion-score traders
-- **Feature Importance** — Random Forest feature contribution analysis
+- Precision / Recall / F1
+- ROC-AUC
+- Precision@Top-K (flags the K most suspicious traders — relevant for triage workflows)
+- Confusion matrix
+- Feature importance (Random Forest)
 
----
-
-## Getting Started
-
-### Prerequisites
-
-- Python 3.10+
-- pip
-
-### Installation
-
-```bash
-git clone https://github.com/<your-username>/trade-surveillance-ml.git
-cd trade-surveillance-ml
-python -m venv venv
-source venv/bin/activate        # Windows: venv\Scripts\activate
-pip install -r requirements.txt
-```
-
-### Run the Full Pipeline
-
-```bash
-python main.py
-```
-
-### Run Inference Only
-
-```bash
-python main.py --inference
-```
+Outputs saved to `outputs/metrics/` and `outputs/plots/`.
 
 ---
 
 ## Configuration
 
-All pipeline parameters are controlled through `configs/config.yaml`. Key settings:
+All parameters are controlled via `config.yaml`. Key sections:
 
 ```yaml
-data:
-  simulation:
-    num_traders: 500
-    manipulation_fraction: 0.10
-    seed: 42
+random_seed: 42
 
-model:
-  random_forest:
-    n_estimators: 100
-    max_depth: 10
+simulation:
+  n_traders: 500
+  suspicious_fraction: 0.10
+
+preprocessing:
+  time_window_seconds: 60
+  scaler: standard
+
+training:
+  models:
+    - logistic_regression
+    - random_forest
+    - isolation_forest
 
 evaluation:
   top_k: 20
 ```
 
-Adjust `manipulation_fraction`, `random_seed`, and model hyperparameters to experiment with different conditions. See the full config in [`configs/config.yaml`](configs/config.yaml).
+See `config.yaml` for the full parameter list.
 
 ---
 
 ## Experiment Tracking
 
-Each training run is logged to `experiments/experiment_log.csv` with:
+Each training run:
+- Gets a unique `run_id` (timestamp-based)
+- Snapshots the config to `outputs/experiments/<run_id>_config.yaml`
+- Appends metrics to `outputs/experiments/experiment_log.csv`
 
-- Run ID and timestamp
-- Model name and hyperparameters
-- ROC-AUC, Precision, Recall on the test set
-
-To compare runs:
-
-```python
-from src.utils.experiment_tracker import get_best_run
-best = get_best_run(metric="roc_auc")
-print(best)
-```
+No external tracking tools required. The CSV is readable in any spreadsheet.
 
 ---
 
 ## Reproducibility
 
-- All random seeds are set via `config.yaml` (`project.random_seed`)
-- Each model run saves a copy of the active config inside its versioned directory
-- `model_registry.json` tracks all saved runs with metadata
-- Scaler parameters are persisted to `data/processed/scaler_params.json` and reloaded at inference
+- Single `random_seed` in config propagates to numpy, random, and all sklearn estimators
+- The data simulator uses the same seed, so `lob_events.csv` is deterministic for a given config
+- The scaler is fit once during training and saved as `models/scaler.pkl` — applied identically during inference
+- Any run can be reproduced from its config snapshot alone
 
 ---
 
-## Limitations
+## Running Tests
 
-- Data is fully synthetic — real LOB data would require exchange APIs or licensed market data feeds
-- Feature engineering is intentionally simple; real surveillance systems use much richer temporal and cross-trader signals
-- No time-series modeling (e.g., LSTMs or sequence models) is used in this version
-- The system is designed for learning and portfolio purposes, not production deployment
+```bash
+pytest tests/
+```
 
----
-
-## Skills Demonstrated
-
-- End-to-end ML pipeline design with clear separation of concerns
-- Feature engineering from event-level time series data
-- Handling class imbalance in a rare-event detection setting
-- Supervised classification and unsupervised anomaly detection
-- Local model versioning and experiment tracking without heavy MLOps tooling
-- Configuration-driven, reproducible ML workflows
+Covers data simulation, feature engineering, and preprocessing logic.
 
 ---
 
-## Dependencies
+## Requirements
 
 ```
-pandas==2.2.2
 numpy==1.26.4
-scikit-learn==1.5.0
+pandas==2.2.2
+scipy==1.13.0
+scikit-learn==1.4.2
 imbalanced-learn==0.12.3
-joblib==1.4.2
+matplotlib==3.8.4
+seaborn==0.13.2
 pyyaml==6.0.1
-matplotlib==3.9.0
-python-dateutil==2.9.0
+joblib==1.4.2
+tqdm==4.66.4
+pytest==8.2.0
+jupyter==1.0.0
 ```
+
+---
+
+## What This Project Demonstrates
+
+- Feature engineering from event-level data (not price data)
+- Handling class imbalance in rare-event detection
+- Threshold tuning on validation set
+- Anomaly detection alongside supervised classification
+- Clean ML pipeline with separated concerns per module
+- Reproducible experiments without heavy tooling
+
+---
+
+## Notes
+
+- All data is synthetic. No real market data is used.
+- This system runs in batch mode only — no real-time streaming.
+- The isolation forest model does not use labels during training. It can be useful for surfacing anomalies in unlabeled data.
+- The notebook in `notebooks/` is for EDA only and is not part of the pipeline.
 
 ---
 
 ## License
 
-This project is intended for educational and portfolio purposes.
+MIT
